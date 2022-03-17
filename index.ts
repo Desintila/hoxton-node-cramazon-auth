@@ -1,7 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import cors from "cors";
 import express from "express";
-import bcrypt, { hashSync } from "bcryptjs"
+import bcrypt from "bcryptjs"
 import jwt from "jsonwebtoken"
 import "dotenv/config"
 
@@ -85,7 +85,7 @@ app.post('/sign-in', async (req, res) => {
 
 
 app.get('/validate', async (req, res) => {
-    const token = req.headers.authorization
+    const token = req.headers.authorization || ''
 
     try {
         const user = await getUserFromToken(token)
@@ -149,10 +149,13 @@ app.post('/items', async (req, res) => {
 
 
 app.post('/orders', async (req, res) => {
-    const { quantity, userId, itemId } = req.body
+    const token = req.headers.authorization || ''
+    const { quantity, itemId } = req.body
     try {
+        const user = await getUserFromToken(token)
         const newOrder = await prisma.order.create({
-            data: { quantity, userId, itemId }
+            //@ts-ignore
+            data: { quantity, userId: user.id, itemId }
         })
         res.send(newOrder)
     }
@@ -163,15 +166,26 @@ app.post('/orders', async (req, res) => {
 })
 
 app.patch('/users/:id', async (req, res) => {
-    const { name, email } = req.body
+    const token = req.headers.authorization || ''
+    const { name, email, password } = req.body
     const id = Number(req.params.id)
     try {
-        const user = await prisma.user.update({
-            where: { id },
-            data: { name: name, email: email },
-            include: { order: { include: { user: true } } }
-        })
-        res.send(user)
+        const user = await getUserFromToken(token)
+        const userToUpdate = await prisma.user.findUnique({ where: { id: id } })
+
+        const hashedPassword = bcrypt.hashSync(password, 8)
+
+        if (user?.id === userToUpdate?.id) {
+            const userUpdated = await prisma.user.update({
+                where: { id },
+                data: { name: name, email: email, password: hashedPassword },
+                include: { order: { include: { user: true } } }
+            })
+            res.send(userUpdated)
+        }
+        else {
+            res.status(400).send({ error: 'Not authorized' })
+        }
     }
     catch (error) {
         //@ts-ignore
@@ -180,10 +194,19 @@ app.patch('/users/:id', async (req, res) => {
 })
 
 app.delete('/orders/:id', async (req, res) => {
+    const token = req.headers.authorization || ''
     const id = Number(req.params.id)
     try {
-        const order = await prisma.order.delete({ where: { id: id } })
-        res.send(order)
+        const user = await getUserFromToken(token)
+        const order = await prisma.order.findUnique({ where: { id: id } })
+
+        if (user?.id === order?.userId) {
+            const orderToDelete = await prisma.order.delete({ where: { id: id } })
+            res.send(orderToDelete)
+        }
+        else {
+            res.status(400).send({ error: 'Not authorized to delete' })
+        }
     }
     catch (error) {
         //@ts-ignore
