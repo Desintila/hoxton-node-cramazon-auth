@@ -23,7 +23,7 @@ async function getUserFromToken(token: string) {
     const user = await prisma.user.findUnique({
         //@ts-ignore
         where: { id: decodedData.id },
-        include: { order: true }
+        include: { order: { include: { item: true } } }
     })
     return user
 }
@@ -93,7 +93,7 @@ app.get('/validate', async (req, res) => {
     }
     catch (error) {
         //@ts-ignore
-        res.status(400).send({ error: 'User or password invalid' })
+        res.status(400).send({ error: 'Invalid Token' })
     }
 })
 
@@ -150,12 +150,12 @@ app.post('/items', async (req, res) => {
 
 app.post('/orders', async (req, res) => {
     const token = req.headers.authorization || ''
-    const { quantity, itemId } = req.body
+    const { quantity, title } = req.body
     try {
         const user = await getUserFromToken(token)
         const newOrder = await prisma.order.create({
             //@ts-ignore
-            data: { quantity, userId: user.id, itemId }
+            data: { quantity, userId: user.id, item: { connect: { title: title } } }
         })
         res.send(newOrder)
     }
